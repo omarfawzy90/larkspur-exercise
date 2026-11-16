@@ -1,10 +1,10 @@
 """Larkspur disruption agent. This is the file you build.
-
+ 
 It runs right now, and it is wrong in four places. The trace shows each one
 before the code does, so read the trace first:
-
+ 
     python3 run.py K7PQ2M --trace
-
+ 
 Where you edit:   grep -n '✏' agent.py   (six marks, one per place)
 Steps and gates:  https://anthropicpartnerbasecamp.bts.com/
 """
@@ -13,20 +13,20 @@ from typing import Any, Dict, List
 from support import (MODEL, SYSTEM_PROMPT, call_local, execute_tool, mcp_client,
                      new_session, next_available_day, record_tool_result,
                      runtime_preamble)
-
+ 
 MAX_TOOL_CALLS = 8  # Larkspur's own build capped the loop here; then a human takes over.
-
+ 
 TONE_ADDENDUM = ""                       # ✏️ Build 4, step 4.1, intelligence goal
 EXTRA_TOOLS: List[Dict[str, Any]] = []   # ✏️ Build 2, step 2.1: schemas for the tools you add
 LOCAL_TOOLS: Dict[str, Any] = {}         # ✏️ Build 2, step 2.1: the functions behind them
-
-
+ 
+ 
 def text_of(response) -> str:
     """Given. The last non-empty text block, never content[0]."""
     texts = [b.text for b in response.content if getattr(b, "type", None) == "text" and b.text]
     return texts[-1] if texts else ""
-
-
+ 
+ 
 def tool_results(response) -> List[Dict[str, Any]]:
     """Given. Runs every tool_use block and packages the results the way the
     API expects them back. A tool can live in three places: the MCP server,
@@ -50,8 +50,8 @@ def tool_results(response) -> List[Dict[str, Any]]:
             "content": str(output),
         })
     return results
-
-
+ 
+ 
 def run_agent(pnr: str, last_name: str, message: str) -> str:            # ✏️ Build 1, step 1.2
     """Run the tool loop until Claude stops asking for tools. Return its final text."""
     client, tracer = new_session()
@@ -59,33 +59,33 @@ def run_agent(pnr: str, last_name: str, message: str) -> str:            # ✏�
     messages = [
         {"role": "user", "content": f"PNR {pnr}, last name {last_name}. {message}"},
     ]
-
+ 
     response = client.messages.create(
         model=MODEL, max_tokens=4096, system=runtime_preamble() + SYSTEM_PROMPT + TONE_ADDENDUM,
         thinking={"type": "adaptive"}, tools=tools, messages=messages,
     )
-
-    answer = ""
+ 
     turns = 1
     while response.stop_reason == "tool_use" and turns < MAX_TOOL_CALLS:
-        messages.append({"role": "assistant", "content": text_of(response)})
+        messages.append({"role": "assistant", "content": response.content})
         messages.append({"role": "user", "content": tool_results(response)})
-        answer = text_of(response)
         response = client.messages.create(
             model=MODEL, max_tokens=4096, system=runtime_preamble() + SYSTEM_PROMPT + TONE_ADDENDUM,
             thinking={"type": "adaptive"}, tools=tools, messages=messages,
         )
         turns += 1
-
-    return answer
-
-
+ 
+    # The loop's last response is the one with the answer: stop_reason=end_turn
+    # (or the cap was hit). Read text from it, not from the previous turn.
+    return text_of(response)
+ 
+ 
 def tool_list() -> List[Dict[str, Any]]:                   # ✏️ Build 2, step 2.2
     """Given. Exactly what Claude is offered on every turn; run.py --show-tools
     prints this list."""
     return build_tools() + EXTRA_TOOLS
-
-
+ 
+ 
 # ──────────────────────────────────────────────────────────────────────────────
 # Below this line: what Claude is told about each tool. Step 1.3.
 # The functions these describe are written and correct, in support/tools.py.
@@ -119,17 +119,28 @@ def build_tools() -> List[Dict[str, Any]]:                 # ✏️ Build 1, ste
                 "type": "object",
                 "properties": {
                     "flight_no": {"type": "string"},
-                    "date": {"type": "string", "description": "MM/DD/YYYY"},
+                    "date": {"type": "string", "description": "Local flight date in YYYY-MM-DD format, e.g. 2025-05-08. Take it from the booking's segment date; no other format is accepted."},
                 },
                 "required": ["flight_no", "date"],
             },
         },
         {
             "name": "search_alternatives",
-            "description": "search",
+            "description": (
+                "Search for rebooking alternatives for the disrupted segment on this "
+                "reservation. Call it after lookup_booking and get_flight_status confirm the "
+                "segment is cancelled, diverted or significantly delayed, and the customer "
+                "needs another way to reach their destination. Read-only; it changes nothing. "
+                "Returns ranked options, each with an option_id, flights, scheduled and "
+                "estimated departure/arrival, current status and delay, stops, cabin, seats "
+                "available, operating carrier, minutes later or earlier than the original "
+                "arrival, fare difference in USD, and a rationale. Estimates can move, so "
+                "mention it when an option is delayed. Pass a chosen option_id to hold_seat "
+                "only after the customer picks one."
+            ),
             "input_schema": {
                 "type": "object",
-                "properties": {"pnr": {"type": "string"}},
+                "properties": {"pnr": {"type": "string", "description": "The six-character confirmation code (PNR) of the reservation, as given to lookup_booking."}},
                 "required": ["pnr"],
             },
         },
