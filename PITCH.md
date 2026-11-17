@@ -8,7 +8,7 @@ Number: 2,548.4 input / 640.2 output tokens per resolved contact, 5 ticket types
 Safety check:
 Next: Improve the agent to support more languages
 Still broken: observed issue ---
-Lever: <cost | speed | intelligence>
+Lever: cost
 
 ## Priya asked
 
